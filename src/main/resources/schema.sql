@@ -1,0 +1,110 @@
+-- ============================================================================
+-- Order Management System - Schema (Part 1)
+-- Target: PostgreSQL 15
+--
+-- This file is the single source of truth for the database structure:
+--  - It is graded directly as the Part 1 deliverable.
+--  - It is also copied into src/main/resources/schema.sql, where Spring Boot
+--    executes it automatically on startup (spring.sql.init.mode=always).
+--    Hibernate is set to ddl-auto=validate, so it NEVER generates or alters
+--    tables itself - this file is the only thing that creates schema.
+--
+-- All statements are idempotent (IF NOT EXISTS) so re-running on every app
+-- restart is safe.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- customers
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS customers (
+    id          BIGSERIAL PRIMARY KEY,
+    name        VARCHAR(150) NOT NULL,
+    email       VARCHAR(150) NOT NULL,
+    region      VARCHAR(100),
+    -- Enums are modelled as VARCHAR + CHECK rather than a native Postgres
+    -- ENUM type: adding a new tier/status later is a one-line ALTER ... CHECK
+    -- instead of ALTER TYPE, which can't run inside some transactions.
+    tier        VARCHAR(20) NOT NULL DEFAULT 'STANDARD'
+                    CHECK (tier IN ('STANDARD', 'PREMIUM', 'ENTERPRISE')),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_customers_email UNIQUE (email)
+);
+
+-- ----------------------------------------------------------------------------
+-- products
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS products (
+    id              BIGSERIAL PRIMARY KEY,
+    name            VARCHAR(200) NOT NULL,
+    sku             VARCHAR(50)  NOT NULL,
+    category        VARCHAR(100),
+    unit_price      NUMERIC(12, 2) NOT NULL CHECK (unit_price >= 0),
+    stock_quantity  INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_products_sku UNIQUE (sku)
+);
+
+-- ----------------------------------------------------------------------------
+-- orders
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS orders (
+    id            BIGSERIAL PRIMARY KEY,
+    customer_id   BIGINT NOT NULL REFERENCES customers (id),
+    status        VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+                      CHECK (status IN ('PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED')),
+    -- Denormalised: sum(order_items.quantity * order_items.unit_price) at
+    -- creation time. See DESIGN.md "Denormalisation decisions" - avoids a
+    -- join to order_items for every revenue/summary read, which dominate
+    -- the workload (high read volume system).
+    total_amount  NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ----------------------------------------------------------------------------
+-- order_items
+-- unit_price is copied from products.unit_price AT THE TIME OF PURCHASE.
+-- Required by the spec: if a product's price changes later, historical
+-- orders/revenue must not change retroactively.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS order_items (
+    id          BIGSERIAL PRIMARY KEY,
+    order_id    BIGINT NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
+    product_id  BIGINT NOT NULL REFERENCES products (id),
+    quantity    INTEGER NOT NULL CHECK (quantity > 0),
+    unit_price  NUMERIC(12, 2) NOT NULL CHECK (unit_price >= 0)
+);
+
+-- ============================================================================
+-- Indexes
+--
+-- Chosen from the actual access patterns required by Part 2's endpoints and
+-- Part 1's three queries - see DESIGN.md "Indexing strategy" for the
+-- reasoning behind each one.
+-- ============================================================================
+
+-- GET /api/orders filtered by customerId (+ optionally date range), and
+-- "top customers by revenue in a date window" (Query 1) both filter/sort by
+-- (customer_id, created_at) together, so a composite index serves both
+-- instead of two separate single-column indexes.
+CREATE INDEX IF NOT EXISTS idx_orders_customer_created ON orders (customer_id, created_at DESC);
+
+-- GET /api/orders filtered by status, and the general "recent orders" scans
+-- used in Query 2/3.
+CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders (status, created_at DESC);
+
+-- Plain date-range scans (GET /api/orders?from=&to= with no status/customer)
+-- and Query 3's 12-month trend.
+CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at DESC);
+
+-- order_items is almost always joined back to its parent order or product.
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items (product_id);
+
+-- Query 2: "stock below 20" is a highly selective filter on a low-cardinality
+-- range - a partial index keeps it tiny even at tens of millions of rows,
+-- since only genuinely low-stock products are ever indexed.
+CREATE INDEX IF NOT EXISTS idx_products_low_stock ON products (stock_quantity) WHERE stock_quantity < 20;
+
+-- Query 3 groups by customer tier.
+CREATE INDEX IF NOT EXISTS idx_customers_tier ON customers (tier);

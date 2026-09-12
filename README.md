@@ -1,0 +1,114 @@
+# Order Management System
+
+Backend for an internal order management system (Centrika take-home exam).
+Java 17 · Spring Boot 3 · Spring Data JPA · PostgreSQL 15.
+
+## Project layout
+
+```
+schema.sql                          -- Part 1 deliverable: full DDL (also used at runtime, see below)
+queries.sql                         -- Part 1 deliverable: the three required SQL queries
+DESIGN.md                           -- indexing rationale, ORM/concurrency rationale, Part 3 write-up
+src/main/java/.../
+  model/                            -- JPA entities + enums (Customer, Product, Order, OrderItem, OrderStatus, CustomerTier)
+  repository/                       -- Spring Data repositories (incl. the pessimistic-lock query and summary aggregation)
+  specification/                    -- dynamic WHERE-clause building for GET /api/orders
+  dto/request/, dto/response/       -- request validation + response shapes (kept separate from entities on purpose)
+  service/, service/impl/           -- business logic: order creation, stock deduction, status transitions
+  controller/                       -- REST endpoints
+  exception/                        -- custom exceptions + a single @RestControllerAdvice
+  config/                           -- Swagger/OpenAPI config
+src/main/resources/
+  application.properties
+  schema.sql                        -- copy of the root schema.sql; Spring Boot runs this on startup
+  data.sql                          -- a handful of sample customers/products so Swagger has something to query
+```
+
+`schema.sql` is intentionally the **same file** at the repo root and under `src/main/resources/`: the root copy is the graded Part 1 deliverable, the resources copy is what the running app actually executes (`spring.sql.init.mode=always`, `spring.jpa.hibernate.ddl-auto=validate`). Hibernate never generates or alters tables itself - only this file does. If you edit one, copy it to the other.
+
+## Running it
+
+### Option A - Docker Compose (recommended, no local Postgres/Java needed)
+
+```bash
+docker-compose up --build
+```
+
+This starts Postgres 15 and the app together. On first boot the app creates the schema and seeds a few sample customers/products.
+
+### Option B - `mvn spring-boot:run` against a local Postgres
+
+1. Start a Postgres 15 instance and create a database, e.g.:
+   ```sql
+   CREATE DATABASE order_management_system;
+   ```
+2. Either export connection details as environment variables, or edit `src/main/resources/application.properties` directly:
+   ```bash
+   export DB_HOST=localhost
+   export DB_PORT=5432
+   export DB_NAME=order_management_system
+   export DB_USER=postgres
+   export DB_PASSWORD=postgres
+   ```
+3. Run:
+   ```bash
+   ./mvnw spring-boot:run
+   ```
+   The app creates its schema and seed data automatically on startup (same `schema.sql`/`data.sql` as the Docker path).
+
+The API is available at `http://localhost:8080` either way.
+
+## Trying the API - Swagger UI
+
+Once the app is running, open:
+
+- **Swagger UI:** http://localhost:8080/swagger-ui.html
+- **Raw OpenAPI JSON:** http://localhost:8080/v3/api-docs
+
+Every endpoint is listed with its request/response schema and can be called directly from the browser ("Try it out"). Sample data (`data.sql`) gives you customer ids `1-5` and product ids `1-8` to use right away, e.g.:
+
+```json
+POST /api/orders
+{
+  "customerId": 1,
+  "items": [
+    { "productId": 3, "quantity": 2 },
+    { "productId": 7, "quantity": 5 }
+  ]
+}
+```
+
+Then try `GET /api/orders/{id}` with the id returned, `PUT /api/orders/{id}/status` with `{"status": "PROCESSING"}`, and `GET /api/customers/1/summary`.
+
+## Endpoints
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/orders?page=&size=&status=&customerId=&from=&to=` | Server-side filtered + paginated. `from`/`to` are `yyyy-MM-dd` dates. |
+| GET | `/api/orders/{id}` | Full order detail including line items. |
+| POST | `/api/orders` | Creates an order; deducts stock atomically (see DESIGN.md). |
+| PUT | `/api/orders/{id}/status` | Validates the transition against the order lifecycle; cancelling restocks items. |
+| GET | `/api/customers/{id}/summary` | Total spend, order count, last order date. |
+
+All error responses share one JSON shape:
+
+```json
+{
+  "timestamp": "2026-09-12T10:00:00Z",
+  "status": 400,
+  "error": "Bad Request",
+  "message": "Request validation failed",
+  "path": "/api/orders",
+  "fieldErrors": [ { "field": "items", "message": "items must contain at least one line item" } ]
+}
+```
+
+## Running tests
+
+```bash
+./mvnw test
+```
+
+## Design notes
+
+See [DESIGN.md](DESIGN.md) for the indexing strategy and denormalisation decisions (Part 1), the ORM choice and stock-locking trade-off (Part 2), and the system design write-up for scaling `GET /api/orders` (Part 3).
