@@ -11,9 +11,9 @@ public record CustomerSummaryResponse(
         Long customerId,
 
         @Schema(description = "Number of non-cancelled orders placed", example = "12")
-        long orderCount,
+        Long orderCount,
 
-        @Schema(description = "Sum of totalAmount across all non-cancelled orders", example = "1543.50")
+        @Schema(description = "Sum of totalAmount across all non-cancelled orders", example = "1000.00")
         BigDecimal totalSpend,
 
         @Schema(description = "Timestamp of the customer's most recent order, or null if they have none")

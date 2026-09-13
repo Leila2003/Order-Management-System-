@@ -1,11 +1,13 @@
 
 
 INSERT INTO customers (name, email, region, tier) VALUES
+
     ('Alice Uwase',   'alice.uwase@example.com',   'Kigali',   'ENTERPRISE'),
     ('Brian Mugisha', 'brian.mugisha@example.com', 'Kigali',   'PREMIUM'),
     ('Claire Ingabire','claire.ingabire@example.com','Huye',   'STANDARD'),
     ('David Niyonzima','david.niyonzima@example.com','Musanze','STANDARD'),
     ('Eva Mutesi',    'eva.mutesi@example.com',    'Rubavu',   'PREMIUM')
+
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO products (name, sku, category, unit_price, stock_quantity) VALUES

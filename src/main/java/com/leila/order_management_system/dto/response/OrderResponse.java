@@ -5,10 +5,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Full order detail, including line items. Returned by
- * GET /api/orders/{id}, POST /api/orders and PUT /api/orders/{id}/status.
- */
+
 public record OrderResponse(
         Long id,
         Long customerId,

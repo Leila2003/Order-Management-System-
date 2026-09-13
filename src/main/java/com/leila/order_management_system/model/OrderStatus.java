@@ -3,11 +3,7 @@ package com.leila.order_management_system.model;
 import java.util.EnumSet;
 import java.util.Set;
 
-/**
- * Lifecycle of an order. The {@link #allowedNextStates()} map is the single
- * place that decides which transitions PUT /api/orders/{id}/status accepts -
- * see OrderServiceImpl for how it is enforced.
- */
+
 public enum OrderStatus {
     PENDING,
     PROCESSING,

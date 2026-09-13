@@ -4,13 +4,7 @@ import com.leila.order_management_system.model.Order;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-/**
- * Lightweight row used by GET /api/orders (the paginated list). It
- * deliberately omits line items: loading every item of every order on a
- * page would multiply the payload size and defeats the point of pagination
- * on a table that grows into the tens of millions of rows. Fetch
- * GET /api/orders/{id} for the full item breakdown.
- */
+
 public record OrderSummaryResponse(
         Long id,
         Long customerId,

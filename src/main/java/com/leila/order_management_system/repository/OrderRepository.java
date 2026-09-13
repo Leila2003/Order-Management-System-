@@ -20,7 +20,7 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
             select new com.leila.order_management_system.dto.response.CustomerSummaryResponse(
                 c.id, count(o.id), coalesce(sum(o.totalAmount), 0), max(o.createdAt))
             from Customer c
-            left join Order o on o.customer = c and o.status <> 'CANCELLED'
+            left join Order o on o.customer = c and o.status <> com.leila.order_management_system.model.OrderStatus.CANCELLED
             where c.id = :customerId
             group by c.id
             """)

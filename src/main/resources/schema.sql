@@ -1,16 +1,5 @@
 -- ============================================================================
 -- Order Management System - Schema (Part 1)
--- Target: PostgreSQL 15
---
--- This file is the single source of truth for the database structure:
---  - It is graded directly as the Part 1 deliverable.
---  - It is also copied into src/main/resources/schema.sql, where Spring Boot
---    executes it automatically on startup (spring.sql.init.mode=always).
---    Hibernate is set to ddl-auto=validate, so it NEVER generates or alters
---    tables itself - this file is the only thing that creates schema.
---
--- All statements are idempotent (IF NOT EXISTS) so re-running on every app
--- restart is safe.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
