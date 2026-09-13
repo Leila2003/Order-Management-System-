@@ -6,7 +6,12 @@ INSERT INTO customers (name, email, region, tier) VALUES
     ('Brian Mugisha', 'brian.mugisha@example.com', 'Kigali',   'PREMIUM'),
     ('Claire Ingabire','claire.ingabire@example.com','Huye',   'STANDARD'),
     ('David Niyonzima','david.niyonzima@example.com','Musanze','STANDARD'),
-    ('Eva Mutesi',    'eva.mutesi@example.com',    'Rubavu',   'PREMIUM')
+    ('Eva Mutesi',    'eva.mutesi@example.com',    'Rubavu',   'PREMIUM'),
+    ('Felix Habimana', 'felix.habimana@example.com', 'Kigali',  'STANDARD'),
+    ('Grace Umutoni',  'grace.umutoni@example.com',  'Huye',    'ENTERPRISE'),
+    ('Henry Nshimiyimana','henry.nshimiyimana@example.com','Musanze','PREMIUM'),
+    ('Irene Uwimana',  'irene.uwimana@example.com',  'Rubavu',  'STANDARD'),
+    ('Jean Habyarimana','jean.habyarimana@example.com','Kigali','PREMIUM')
 
 ON CONFLICT (email) DO NOTHING;
 

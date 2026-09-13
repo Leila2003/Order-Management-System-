@@ -1,9 +1,10 @@
 package com.leila.order_management_system.dto.response;
 
 import com.leila.order_management_system.model.OrderItem;
+import java.util.UUID;
 
 public record OrderItemResponse(
-        Long productId,
+        UUID productId,
         String productName,
         Integer quantity,
         Integer unitPrice,

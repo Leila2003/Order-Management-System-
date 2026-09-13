@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Arrays;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -43,7 +44,7 @@ public class OrderController {
             """)
     public PageResponse<OrderSummaryResponse> listOrders(
             @Parameter(description = "Filter by order status") @RequestParam(required = false) String status,
-            @Parameter(description = "Filter by customer id") @RequestParam(required = false) Long customerId,
+            @Parameter(description = "Filter by customer id") @RequestParam(required = false) UUID customerId,
             @Parameter(description = "Only orders created on/after this date") @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @Parameter(description = "Only orders created before this date") @RequestParam(required = false)
@@ -58,7 +59,7 @@ public class OrderController {
 
     @GetMapping("/api/orders/{id}")
     @Operation(summary = "Get a single order with its line items")
-    public OrderResponse getOrder(@PathVariable Long id) {
+    public OrderResponse getOrder(@PathVariable UUID id) {
         return orderService.getOrder(id);
     }
 
@@ -80,7 +81,7 @@ public class OrderController {
             SHIPPED -> DELIVERED. DELIVERED and CANCELLED are terminal.
             Cancelling restocks the order's items.
             """)
-    public OrderResponse updateStatus(@PathVariable Long id, @Valid @RequestBody UpdateOrderStatusRequest request) {
+    public OrderResponse updateStatus(@PathVariable UUID id, @Valid @RequestBody UpdateOrderStatusRequest request) {
         return orderService.updateStatus(id, request);
     }
 

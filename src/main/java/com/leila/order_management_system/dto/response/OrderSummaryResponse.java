@@ -3,11 +3,12 @@ package com.leila.order_management_system.dto.response;
 import com.leila.order_management_system.model.Order;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 
 
 public record OrderSummaryResponse(
-        Long id,
-        Long customerId,
+        UUID id,
+        UUID customerId,
         String customerName,
         String status,
         BigDecimal totalAmount,

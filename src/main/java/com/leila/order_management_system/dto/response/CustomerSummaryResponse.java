@@ -3,12 +3,13 @@ package com.leila.order_management_system.dto.response;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 
 @Schema(description = "Aggregate spending summary for a single customer")
 public record CustomerSummaryResponse(
 
-        @Schema(description = "Customer id", example = "1")
-        Long customerId,
+        @Schema(description = "Customer id", example = "550e8400-e29b-41d4-a716-446655440000")
+        UUID customerId,
 
         @Schema(description = "Number of non-cancelled orders placed", example = "12")
         Long orderCount,

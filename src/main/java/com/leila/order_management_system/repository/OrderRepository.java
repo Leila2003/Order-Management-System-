@@ -3,6 +3,7 @@ package com.leila.order_management_system.repository;
 import com.leila.order_management_system.dto.response.CustomerSummaryResponse;
 import com.leila.order_management_system.model.Order;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
@@ -13,7 +14,7 @@ import org.springframework.data.repository.query.Param;
  * for free, which is how GET /api/orders applies its optional filters and
  * pagination entirely in SQL (see {@link com.leila.order_management_system.specification.OrderSpecifications}).
  */
-public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecificationExecutor<Order> {
+public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecificationExecutor<Order> {
 
     
     @Query("""
@@ -24,5 +25,5 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
             where c.id = :customerId
             group by c.id
             """)
-    Optional<CustomerSummaryResponse> findCustomerSummary(@Param("customerId") Long customerId);
+    Optional<CustomerSummaryResponse> findCustomerSummary(@Param("customerId") UUID customerId);
 }

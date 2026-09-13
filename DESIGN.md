@@ -15,6 +15,8 @@
 
 General rule I followed: index the columns that appear in a `WHERE`/`JOIN`/`ORDER BY` together, as one composite index, rather than one index per column - Postgres can only efficiently use a single index per table per query in most plans, so composite indexes that match the actual access pattern beat several narrow ones.
 
+**Note on UUID primary keys.** All four tables use `UUID PRIMARY KEY DEFAULT gen_random_uuid()` (random v4) instead of `BIGSERIAL`, so that ids are non-guessable and safe to expose directly in the API and to generate client-side without a round-trip. The trade-off at the "tens of millions of rows" scale this exam targets: a v4 UUID is 16 bytes vs. 8 for `bigint`, and because the values are random rather than monotonically increasing, every insert lands at a random point in the primary-key B-tree instead of always appending at the right edge - this causes more page splits, worse buffer-cache locality, and a larger, more fragmented index than an equivalent `BIGSERIAL` table. All the composite indexes above are unaffected (they don't lead with `id`), and keyset pagination (Part 3) still works because it only needs `id` to be a stable tie-breaker, not chronological. If insert throughput on these tables became the bottleneck in practice, the standard fix is a time-ordered id (UUIDv7, or `ULID`) instead of v4, which preserves the non-guessable/client-generatable properties while keeping inserts sequential.
+
 ### Denormalisation decisions
 
 1. **`order_items.unit_price`** - required by the spec: it's a snapshot of `products.unit_price` at the moment of purchase. If it just referenced `products`, a later price change would silently rewrite the revenue of every past order. This is the standard "price at time of sale" pattern for any order/invoice system.
@@ -33,25 +35,34 @@ I used **Spring Data JPA / Hibernate** rather than plain Spring JDBC:
 - `@Lock(LockModeType.PESSIMISTIC_WRITE)` maps directly onto `SELECT ... FOR UPDATE`, which is exactly the primitive the concurrency requirement needs.
 - The trade-off: JPA can hide expensive queries behind an innocuous-looking method call (N+1 selects, over-fetching). I mitigated this deliberately: `@ManyToOne` associations are `FetchType.LAZY` everywhere, `spring.jpa.open-in-view=false` (no queries leak into the view layer), `hibernate.default_batch_fetch_size=25` batches any lazy loads that do happen, and the list endpoint returns a lightweight `OrderSummaryResponse` that never touches the `order_items` collection at all. For the two spots doing real aggregation (`Query 1-3` in Part 1, and the customer summary), I still write the query explicitly (JPQL/native SQL) rather than trusting an ORM-generated one - Spring JDBC would have been an equally valid choice for those two reasons alone, and for a system expected to scale to tens of millions of rows I'd reach for it more as the read paths grow, keeping JPA only for the transactional write paths (order creation, status update).
 
-### Concurrency & stock deduction: pessimistic locking
+### Concurrency & stock deduction: a hybrid of optimistic and pessimistic locking
 
-`POST /api/orders` (`OrderServiceImpl#createOrder`) uses **pessimistic locking**: `ProductRepository.findByIdForUpdate` issues `SELECT ... FOR UPDATE` inside the request's `@Transactional` method.
+`POST /api/orders` (`OrderServiceImpl#deductStockAndBuildItem`) picks a strategy **per product, based on how much stock is currently on hand**, rather than committing to one strategy for every row:
 
-**How it prevents overselling:** the lock is held for the lifetime of the transaction. If two requests race to buy the last unit of the same product, the second transaction's `SELECT ... FOR UPDATE` blocks at the database level until the first transaction commits (having already decremented `stock_quantity`) or rolls back. When the second transaction is finally granted the lock, it re-reads the *already-updated* `stock_quantity` and correctly throws `InsufficientStockException` if there isn't enough left. The two requests can never both read the same "before" stock value and both succeed.
-
-**Deadlock avoidance:** when an order has multiple line items, products are locked in ascending `id` order before any are touched, so two orders that share several products always acquire locks in the same sequence and can't deadlock against each other.
-
-**Trade-off vs. optimistic locking** (a `@Version` column + retry-on-conflict, `ObjectOptimisticLockingFailureException`):
-
-| | Pessimistic (`SELECT FOR UPDATE`) - chosen | Optimistic (`@Version`) |
+| Stock level | Strategy | Mechanism |
 |---|---|---|
-| Correctness | Guaranteed by the DB, no extra code | Guaranteed only if the caller retries on conflict |
-| Throughput under low contention | Slight overhead even when nobody else wants the row | No overhead - the common case is fast |
-| Throughput under high contention | Requests queue up (serialised per product row) | Requests fail fast and must retry, which itself adds load |
-| Failure mode for the caller | Slower response, never a "your request failed, try again" | Needs explicit retry logic or the client sees spurious 409s |
-| Best fit | Correctness-critical, occasional-write paths (checkout) | High-throughput writes where conflicts are rare |
+| `stock_quantity > 20` (well-stocked) | **Optimistic** (lock-free) | A single atomic `UPDATE products SET stock_quantity = stock_quantity - :qty WHERE id = :id AND stock_quantity >= :qty` (`ProductRepository.deductStockIfAvailable`) |
+| `stock_quantity <= 20` (low stock) | **Pessimistic** | `SELECT ... FOR UPDATE` (`ProductRepository.findByIdForUpdate`), as before |
 
-I chose pessimistic locking because checkout is exactly the "occasional bulk writes, must be correct" path the exam describes, contention is naturally limited to popular/low-stock SKUs, and it needs no retry logic to be correct - which keeps the code easier to reason about for a take-home. In a system where stock updates were the hot path (e.g. a flash-sale service), I'd reconsider optimistic locking with a bounded retry loop to get better throughput at the cost of that added complexity.
+The `20` threshold is not a new magic number - it's the same "low stock" boundary already used by `idx_products_low_stock` in schema.sql and by Query 2, so "low stock" means one thing everywhere in this codebase.
+
+**Why the optimistic path doesn't need a `@Version` column.** A conditional `UPDATE` is race-safe on its own: Postgres takes a row-level write lock for the duration of *that statement* no matter which "philosophy" issued it, so two concurrent attempts on the same row always serialise at the database level - the second one physically cannot proceed until the first commits or rolls back, and then re-evaluates its own `WHERE stock_quantity >= :qty` against the post-commit value. If it doesn't match, `0` rows are affected and the code fails fast with `InsufficientStockException` - there's no version conflict to retry, because a plain "not enough stock right now" is a legitimate business outcome here, not a transient one. This is simpler than classic `@Version` + `OptimisticLockException` + retry-loop, and just as correct for a single-counter deduction like this.
+
+**Why the initial (unlocked) stock-level read is safe to be stale.** Before deducting, the code reads the current `stock_quantity` via `ProductRepository.findStockView` - a plain, unlocked projection query - purely to decide *which branch to run*. If that read is stale by the time the actual deduction happens (someone else bought stock in between), it doesn't matter: the optimistic branch's `UPDATE ... WHERE` guard still catches insufficient stock correctly, and the pessimistic branch re-reads fresh, locked data anyway. The read is a heuristic for routing, not a correctness mechanism, so it never needs its own lock.
+
+**Deadlock avoidance still holds across both branches.** When an order has multiple line items, products are still processed in a fixed order (ascending `id`) before any are touched - this matters regardless of which branch each item takes, because both the atomic `UPDATE` and `SELECT ... FOR UPDATE` hold their row lock until the transaction commits. As long as every code path acquires locks in the same relative order, two orders sharing several products still can't deadlock against each other.
+
+**Scope note:** the cancellation path (`updateStatus` restocking items when an order is cancelled) intentionally stays pessimistic-only. Cancellations are comparatively rare (an operator action, not a customer-facing hot path), so there's no throughput reason to add the extra branching there, and restocking is a good place to stay conservative.
+
+**Trade-off vs. picking a single strategy for everything:**
+
+| | Pure pessimistic (`SELECT FOR UPDATE` everywhere) | Pure optimistic (`@Version` + retry) | Hybrid (chosen) |
+|---|---|---|---|
+| Throughput on well-stocked products | Pays lock overhead even though nobody is contending | No overhead | No overhead (same as pure optimistic) |
+| Correctness under contention on a hot, low-stock SKU | Guaranteed, no retry needed | Guaranteed only if the caller retries; failures pile up exactly where contention is worst | Guaranteed, no retry needed (falls back to pessimistic exactly where it matters) |
+| Code complexity | One code path | One code path, but needs a retry loop to be usable | Two code paths, but neither needs a retry loop |
+
+The hybrid costs one extra unlocked read per line item (to pick a branch) and a second repository method, in exchange for avoiding any locking cost on the common case (orders touching well-stocked products) while keeping the strong, no-retry-needed guarantee exactly where contention actually concentrates - the last few units of a popular SKU.
 
 ---
 

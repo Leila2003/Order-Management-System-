@@ -1,9 +1,13 @@
 
+-- gen_random_uuid() lives in pgcrypto on Postgres 15 (it's only built into
+-- core as of Postgres 16), so it must be enabled explicitly here.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- ----------------------------------------------------------------------------
 -- customers
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS customers (
-    id          BIGSERIAL PRIMARY KEY,
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name        VARCHAR(150) NOT NULL,
     email       VARCHAR(150) NOT NULL,
     region      VARCHAR(100),
@@ -20,7 +24,7 @@ CREATE TABLE IF NOT EXISTS customers (
 -- products
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS products (
-    id              BIGSERIAL PRIMARY KEY,
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name            VARCHAR(200) NOT NULL,
     sku             VARCHAR(50)  NOT NULL,
     category        VARCHAR(100),
@@ -34,8 +38,8 @@ CREATE TABLE IF NOT EXISTS products (
 -- orders
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS orders (
-    id            BIGSERIAL PRIMARY KEY,
-    customer_id   BIGINT NOT NULL REFERENCES customers (id),
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    customer_id   UUID NOT NULL REFERENCES customers (id),
     status        VARCHAR(20) NOT NULL DEFAULT 'PENDING'
                       CHECK (status IN ('PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED')),
     
@@ -48,9 +52,9 @@ CREATE TABLE IF NOT EXISTS orders (
 -- order_items
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS order_items (
-    id          BIGSERIAL PRIMARY KEY,
-    order_id    BIGINT NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
-    product_id  BIGINT NOT NULL REFERENCES products (id),
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id    UUID NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
+    product_id  UUID NOT NULL REFERENCES products (id),
     quantity    INTEGER NOT NULL CHECK (quantity > 0),
     unit_price  INTEGER NOT NULL CHECK (unit_price >= 0)
 );

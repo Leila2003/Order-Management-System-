@@ -1,12 +1,13 @@
--- ============================================================================
--- Order Management System - Schema (Part 1)
--- ============================================================================
+
+-- gen_random_uuid() lives in pgcrypto on Postgres 15 (it's only built into
+-- core as of Postgres 16), so it must be enabled explicitly here.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ----------------------------------------------------------------------------
 -- customers
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS customers (
-    id          BIGSERIAL PRIMARY KEY,
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name        VARCHAR(150) NOT NULL,
     email       VARCHAR(150) NOT NULL,
     region      VARCHAR(100),
@@ -23,11 +24,11 @@ CREATE TABLE IF NOT EXISTS customers (
 -- products
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS products (
-    id              BIGSERIAL PRIMARY KEY,
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name            VARCHAR(200) NOT NULL,
     sku             VARCHAR(50)  NOT NULL,
     category        VARCHAR(100),
-    unit_price      NUMERIC(12, 2) NOT NULL CHECK (unit_price >= 0),
+    unit_price      INTEGER NOT NULL CHECK (unit_price >= 0),
     stock_quantity  INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_products_sku UNIQUE (sku)
@@ -37,14 +38,11 @@ CREATE TABLE IF NOT EXISTS products (
 -- orders
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS orders (
-    id            BIGSERIAL PRIMARY KEY,
-    customer_id   BIGINT NOT NULL REFERENCES customers (id),
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    customer_id   UUID NOT NULL REFERENCES customers (id),
     status        VARCHAR(20) NOT NULL DEFAULT 'PENDING'
                       CHECK (status IN ('PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED')),
-    -- Denormalised: sum(order_items.quantity * order_items.unit_price) at
-    -- creation time. See DESIGN.md "Denormalisation decisions" - avoids a
-    -- join to order_items for every revenue/summary read, which dominate
-    -- the workload (high read volume system).
+    
     total_amount  NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -52,30 +50,16 @@ CREATE TABLE IF NOT EXISTS orders (
 
 -- ----------------------------------------------------------------------------
 -- order_items
--- unit_price is copied from products.unit_price AT THE TIME OF PURCHASE.
--- Required by the spec: if a product's price changes later, historical
--- orders/revenue must not change retroactively.
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS order_items (
-    id          BIGSERIAL PRIMARY KEY,
-    order_id    BIGINT NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
-    product_id  BIGINT NOT NULL REFERENCES products (id),
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id    UUID NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
+    product_id  UUID NOT NULL REFERENCES products (id),
     quantity    INTEGER NOT NULL CHECK (quantity > 0),
-    unit_price  NUMERIC(12, 2) NOT NULL CHECK (unit_price >= 0)
+    unit_price  INTEGER NOT NULL CHECK (unit_price >= 0)
 );
 
--- ============================================================================
--- Indexes
---
--- Chosen from the actual access patterns required by Part 2's endpoints and
--- Part 1's three queries - see DESIGN.md "Indexing strategy" for the
--- reasoning behind each one.
--- ============================================================================
 
--- GET /api/orders filtered by customerId (+ optionally date range), and
--- "top customers by revenue in a date window" (Query 1) both filter/sort by
--- (customer_id, created_at) together, so a composite index serves both
--- instead of two separate single-column indexes.
 CREATE INDEX IF NOT EXISTS idx_orders_customer_created ON orders (customer_id, created_at DESC);
 
 -- GET /api/orders filtered by status, and the general "recent orders" scans
